@@ -1,0 +1,351 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <!-- Firebase SDKs -->
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
+
+<script>
+  // Firebase configuration (from your Firebase console)
+  const firebaseConfig = {
+    apiKey: "AIzaSyDPlVEQDqznIsLQ_a0yZdx-w7a6yEsWoY",
+    authDomain: "virtual-voice-assistant-a09f8.firebaseapp.com",
+    projectId: "virtual-voice-assistant-a09f8",
+    storageBucket: "virtual-voice-assistant-a09f8.appspot.com",
+    messagingSenderId: "999228719149",
+    appId: "1:999228719149:web:c66ed1f8e7920b83577a84",
+    measurementId: "G-QJ4CXQLPLQ"
+  };
+
+  // Initialize Firebase
+  firebase.initializeApp(firebaseConfig);
+  const db = firebase.firestore();
+</script>
+
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Voice Assistant</title>
+    <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone@7.25.6/babel.min.js"></script>
+    <script src="https://cdn.tailwindcss.com/3.4.13"></script>
+    <style>
+        /* Your dark theme styles from previous response */
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap');
+        body { font-family: 'Inter', sans-serif; background-color: #0f172a; }
+        .container { max-width: 800px; margin: 0 auto; padding: 20px; text-align: center; }
+        .header { margin-bottom: 20px; }
+        .logo { font-size: 2.5rem; color: #93c5fd; margin: 0; }
+        .tagline { font-size: 1.2rem; color: #94a3b8; margin: 0; }
+        .voice-visualizer { width: 100px; height: 100px; background: #1e293b; border: 2px solid #3b82f6; border-radius: 50%; margin: 20px auto; display: flex; align-items: center; justify-content: center; cursor: pointer; transition: transform 0.2s; }
+        .voice-visualizer.listening { background: #166534; border-color: #22c55e; transform: scale(1.1); }
+        .voice-visualizer.speaking { background: #1e40af; border-color: #3b82f6; transform: scale(1.1); }
+        .voice-icon { font-size: 2rem; color: #ffffff; }
+        .status-text { margin: 10px 0; color: #d1d5db; }
+        .controls { margin: 20px 0; }
+        .control-btn { padding: 10px 20px; margin: 0 10px; border: none; border-radius: 5px; cursor: pointer; background: #374151; color: #ffffff; }
+        .control-btn.primary { background: #3b82f6; color: #ffffff; }
+        .control-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+        .features { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 20px; margin: 20px 0; }
+        .feature-card { background: #1f2937; padding: 15px; border-radius: 8px; cursor: pointer; transition: transform 0.2s; }
+        .feature-card:hover { transform: scale(1.05); background: #2d3748; }
+        .feature-icon { font-size: 1.5rem; color: #93c5fd; }
+        .feature-title { margin: 10px 0 5px; color: #93c5fd; }
+        .feature-desc { font-size: 0.9rem; color: #d1d5db; }
+        .conversation-history { margin-top: 20px; text-align: left; }
+        .conversation-title { color: #93c5fd; margin-bottom: 10px; }
+        .conversation-item { margin: 10px 0; padding: 10px; border-radius: 5px; }
+        .conversation-item.user { background: #334155; }
+        .conversation-item.assistant { background: #2d3748; }
+        .conversation-label { font-weight: bold; color: #ffffff; }
+        .conversation-text { margin-top: 5px; color: #d1d5db; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header class="header">
+            <h1 class="logo">Voice</h1>
+            <p class="tagline">Your Intelligent Virtual Assistant</p>
+        </header>
+        
+        <main class="main-content">
+            <div class="voice-visualizer" id="voiceVisualizer">
+                <div class="voice-icon">🎤</div>
+            </div>
+            
+            <div class="status-text" id="statusText">
+                Click the microphone to start talking with Assistant
+            </div>
+            
+            <div class="controls">
+                <button class="control-btn primary" id="startBtn">Start Listening</button>
+                <button class="control-btn" id="stopBtn">Stop</button>
+                <button class="control-btn" id="clearBtn">Clear History</button>
+            </div>
+            
+            <div class="features">
+                <div class="feature-card" onclick="askQuestion('What\'s the weather like?')">
+                    <span class="feature-icon">🌤️</span>
+                    <h3 class="feature-title">Weather</h3>
+                    <p class="feature-desc">Get current weather conditions and forecasts</p>
+                </div>
+                
+                <div class="feature-card" onclick="askQuestion('Set a timer for 5 minutes')">
+                    <span class="feature-icon">⏰</span>
+                    <h3 class="feature-title">Timers</h3>
+                    <p class="feature-desc">Set reminders and countdown timers</p>
+                </div>
+                
+                <div class="feature-card" onclick="askQuestion('Tell me a joke')">
+                    <span class="feature-icon">😄</span>
+                    <h3 class="feature-title">Entertainment</h3>
+                    <p class="feature-desc">Jokes, stories, and fun conversations</p>
+                </div>
+                
+                <div class="feature-card" onclick="askQuestion('What can you help me with?')">
+                    <span class="feature-icon">💡</span>
+                    <h3 class="feature-title">General Help</h3>
+                    <p class="feature-desc">Ask questions and get helpful answers</p>
+                </div>
+            </div>
+            
+            <div class="conversation-history" id="conversationHistory">
+                <h3 class="conversation-title">Conversation History</h3>
+                <div id="conversationList">
+                    <div class="conversation-item assistant">
+                        <div class="conversation-label">VC</div>
+                        <div class="conversation-text">Hello! I'm VC, your virtual assistant. How can I help you today?</div>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <script>
+        class VirtualAssistant {
+            constructor() {
+                this.isListening = false;
+                this.isSpeaking = false;
+                this.ws = null;
+                this.audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                this.audioQueue = [];
+                this.audioSource = null;
+                this.conversationHistory = [];
+
+                this.initializeElements();
+                this.initializeWebSocket();
+                this.bindEvents();
+            }
+            
+            initializeElements() {
+                this.voiceVisualizer = document.getElementById('voiceVisualizer');
+                this.statusText = document.getElementById('statusText');
+                this.startBtn = document.getElementById('startBtn');
+                this.stopBtn = document.getElementById('stopBtn');
+                this.clearBtn = document.getElementById('clearBtn');
+                this.conversationList = document.getElementById('conversationList');
+            }
+            
+            initializeWebSocket() {
+                this.ws = new WebSocket('ws://localhost:8080/ws');
+                
+                this.ws.onopen = () => {
+                    console.log('WebSocket connected');
+                    this.statusText.textContent = 'Connected to VC. Click to start talking.';
+                    this.startBtn.disabled = false;
+                };
+                
+                this.ws.onmessage = (event) => {
+                    try {
+                        const data = JSON.parse(event.data);
+                        console.log('Received:', data);
+
+                        if (data.type === 'response.text.delta') {
+                            // use the assistant method to add to conversation (safer than manipulating unknown selectors)
+                            this.addToConversation('assistant', data.delta);
+                        } else if (data.type === 'conversation.item.create' && data.item.type === 'function_call_output') {
+                            const output = JSON.parse(data.item.output);
+                            if (output.hotels) {
+                                this.addToConversation('assistant', `Found ${output.hotels.length} hotels: ${JSON.stringify(output.hotels)}`);
+                            }
+                        } else if (data.type === 'response.audio.delta') {
+                            // reuse the existing audioContext and play the incoming audio delta
+                            this.playAudioDelta(data.delta, data.sampleRate, data.channels, data.format);
+                            this.statusText.textContent = 'VC is speaking...';
+                        } else if (data.type === 'response.audio.done') {
+                            this.stopSpeaking();
+                        } else if (data.type === 'error') {
+                            this.statusText.textContent = `Error: ${data.error}`;
+                        }
+                    } catch (err) {
+                        console.error('Error processing WS message:', err, event.data);
+                    }
+                };
+                
+                this.ws.onclose = () => {
+                    console.log('WebSocket closed');
+                    this.statusText.textContent = 'Disconnected. Please restart the application.';
+                    this.startBtn.disabled = true;
+                    this.stopBtn.disabled = true;
+                };
+                
+                this.ws.onerror = (error) => {
+                    console.error('WebSocket error:', error);
+                    this.statusText.textContent = 'Connection error. Check the backend.';
+                };
+            }
+            
+            bindEvents() {
+                this.startBtn.addEventListener('click', () => this.startListening());
+                this.stopBtn.addEventListener('click', () => this.stopListening());
+                this.clearBtn.addEventListener('click', () => this.clearHistory());
+                this.voiceVisualizer.addEventListener('click', () => this.toggleListening());
+            }
+            
+            startListening() {
+                if (this.isListening || !this.ws || this.ws.readyState !== WebSocket.OPEN) return;
+                
+                this.isListening = true;
+                this.voiceVisualizer.classList.add('listening');
+                this.voiceVisualizer.querySelector('.voice-icon').textContent = '🎙️';
+                this.statusText.textContent = 'Listening... Speak now!';
+                this.startBtn.textContent = 'Listening...';
+                this.startBtn.disabled = true;
+                this.stopBtn.disabled = false;
+                
+                const audioEvent = {
+                    type: 'input_audio_buffer.append',
+                    audio: btoa('start_recording')
+                };
+                this.ws.send(JSON.stringify(audioEvent));
+            }
+            
+            stopListening() {
+                if (!this.isListening || !this.ws || this.ws.readyState !== WebSocket.OPEN) return;
+                
+                this.isListening = false;
+                this.voiceVisualizer.classList.remove('listening');
+                this.voiceVisualizer.querySelector('.voice-icon').textContent = '🎤';
+                this.statusText.textContent = 'Click the microphone to start talking with Assistant';
+                this.startBtn.textContent = 'Start Listening';
+                this.startBtn.disabled = false;
+                this.stopBtn.disabled = true;
+                
+                const audioEvent = {
+                    type: 'input_audio_buffer.append',
+                    audio: btoa('stop_recording')
+                };
+                this.ws.send(JSON.stringify(audioEvent));
+            }
+            
+            toggleListening() {
+                if (this.isListening) {
+                    this.stopListening();
+                } else {
+                    this.startListening();
+                }
+            }
+            
+            playAudioDelta(base64Delta, sampleRate, channels, format) {
+                if (!this.audioContext) {
+                    this.audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                }
+                const audioData = atob(base64Delta);
+                const audioArray = new Uint8Array(audioData.length);
+                for (let i = 0; i < audioData.length; i++) {
+                    audioArray[i] = audioData.charCodeAt(i);
+                }
+                this.audioContext.decodeAudioData(audioArray.buffer.slice(0), (buffer) => {
+                    if (this.audioSource) this.audioSource.stop();
+                    this.audioSource = this.audioContext.createBufferSource();
+                    this.audioSource.buffer = buffer;
+                    this.audioSource.connect(this.audioContext.destination);
+                    this.audioSource.start(0);
+                    this.isSpeaking = true;
+                    this.voiceVisualizer.classList.add('speaking');
+                    this.voiceVisualizer.querySelector('.voice-icon').textContent = '🗣️';
+                }, (error) => {
+                    console.error('Audio decode error:', error);
+                });
+            }
+            
+            stopSpeaking() {
+                if (this.isSpeaking) {
+                    this.isSpeaking = false;
+                    this.voiceVisualizer.classList.remove('speaking');
+                    this.voiceVisualizer.querySelector('.voice-icon').textContent = '🎤';
+                    this.statusText.textContent = 'Click the microphone to start talking with Assistant';
+                }
+            }
+            
+            addToConversation(sender, message) {
+                const conversationItem = document.createElement('div');
+                conversationItem.className = `conversation-item ${sender}`;
+                
+                conversationItem.innerHTML = `
+                    <div class="conversation-label">${sender === 'user' ? 'You' : 'VC'}</div>
+                    <div class="conversation-text">${message}</div>
+                `;
+                
+                this.conversationList.appendChild(conversationItem);
+                this.conversationHistory.push({ sender, message, timestamp: new Date() });
+                 // 🔥 Store message in Firestore
+               db.collection("conversations").add({
+                 sender: sender,
+                  message: message,
+                 timestamp: new Date()
+                }).then(() => {
+                console.log("✅ Message saved to Firestore");
+                }).catch((err) => {
+                console.error("❌ Failed to save message:", err);
+            });
+
+                
+                conversationItem.scrollIntoView({ behavior: 'smooth' });
+            }
+            
+            clearHistory() {
+                this.conversationHistory = [];
+                this.conversationList.innerHTML = `
+                    <div class="conversation-item assistant">
+                        <div class="conversation-label">VC</div>
+                        <div class="conversation-text">Hello! I'm VC, your virtual assistant. How can I help you today?</div>
+                    </div>
+                `;
+            }
+        }
+        
+        function askQuestion(question) {
+            if (window.assistant && window.assistant.ws && window.assistant.ws.readyState === WebSocket.OPEN) {
+                window.assistant.addToConversation('user', question);
+                // Backend will handle the response via WebSocket
+            } else {
+                alert('Not connected to VC. Please start the backend.');
+            }
+        }
+        
+        document.addEventListener('DOMContentLoaded', () => {
+            window.assistant = new VirtualAssistant();
+            // 🔁 Load previous conversations
+                        // load only the most recent 50 messages to avoid blocking the UI
+                        db.collection("conversations")
+                        .orderBy("timestamp", "desc")
+                        .limit(50)
+                        .get()
+                        .then((querySnapshot) => {
+                            // iterate in reverse so oldest of the batch appears first
+                            const docs = [];
+                            querySnapshot.forEach((doc) => docs.push(doc));
+                            for (let i = docs.length - 1; i >= 0; i--) {
+                                const data = docs[i].data();
+                                window.assistant.addToConversation(data.sender, data.message);
+                            }
+                     }).catch((err) => {
+                            console.error('Failed loading conversation history:', err);
+                     });
+          });
+
+          
+    </script>
+</body>
+</html>
