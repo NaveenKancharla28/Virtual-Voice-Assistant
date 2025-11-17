@@ -78,9 +78,9 @@ def on_message(ws, message):
         print("Playing Virtual Assistant delta on server...")
         # Forward audio to frontend with metadata
         for client in frontend_clients:
-            if client.open:
+            try:
                 asyncio.run_coroutine_threadsafe(
-                    client.send(json.dumps({
+                    client.send_text(json.dumps({
                         "type": "response.audio.delta",
                         "delta": event['delta'],
                         "sampleRate": SAMPLE_RATE,
@@ -89,18 +89,32 @@ def on_message(ws, message):
                     })),
                     asyncio.get_running_loop()
                 )
+            except Exception:
+                pass
     
     elif event_type == 'response.audio.done':
         print("Virtual Assistant response complete.")
         for client in frontend_clients:
-            if client.open:
+            try:
                 asyncio.run_coroutine_threadsafe(
-                    client.send(json.dumps({"type": "response.audio.done"})),
+                    client.send_text(json.dumps({"type": "response.audio.done"})),
                     asyncio.get_running_loop()
                 )
+            except Exception:
+                pass
     
-    elif event_type == 'input_audio_buffer.speech_started':
-        print("User started speaking - interrupt if needed.")
+    elif event_type == 'session.created':
+        print("✅ OpenAI Realtime session created successfully")
+        print(f"Session ID: {event.get('session', {}).get('id', 'N/A')}")
+        # Notify frontend that connection is ready
+        for client in frontend_clients:
+            try:
+                asyncio.run_coroutine_threadsafe(
+                    client.send_text(json.dumps({"type": "session.ready", "message": "Connected to OpenAI"})),
+                    asyncio.get_running_loop()
+                )
+            except Exception:
+                pass
      
     elif event_type == 'response.text.delta':
         print(f"Transcription delta: {event.get('delta', '')}")
@@ -113,11 +127,13 @@ def on_message(ws, message):
         })
         # Forward to frontend clients
         for client in frontend_clients:
-            if client.open:
+            try:
                 asyncio.run_coroutine_threadsafe(
-                    client.send(json.dumps({"type": "response.text.delta", "delta": event.get('delta', '')})),
+                    client.send_text(json.dumps({"type": "response.text.delta", "delta": event.get('delta', '')})),
                     asyncio.get_running_loop()
                 )
+            except Exception:
+                pass
     
     elif event_type == 'response.function_call':
         call_id = event['call_id']
@@ -140,29 +156,49 @@ def on_message(ws, message):
             ws.send(json.dumps({"type": "response.create"}))
             # Forward result to frontend clients
             for client in frontend_clients:
-                if client.open:
+                try:
                     asyncio.run_coroutine_threadsafe(
-                        client.send(json.dumps(tool_response)),
+                        client.send_text(json.dumps(tool_response)),
                         asyncio.get_running_loop()
                     )
+                except Exception:
+                    pass
     
-    elif event_type == 'error':
-        print(f"Error: {event['error']}")
-        # Forward error to frontend clients
+    
+        elif event_type == 'error':
+            error_info = event.get('error', {})
+            error_code = error_info.get('code', '')
+            error_message = error_info.get('message', str(error_info))
+        
+        # Detect quota/billing errors
+        if error_code in ['insufficient_quota', 'rate_limit_exceeded', 'quota_exceeded']:
+            print("\n" + "="*60)
+            print("⚠️  OPENAI QUOTA/BILLING ERROR")
+            print("="*60)
+            print(f"Error Code: {error_code}")
+            print(f"Message: {error_message}")
+            print("\nACTION REQUIRED:")
+            print("1. Check your OpenAI account billing: https://platform.openai.com/settings/organization/billing")
+            print("2. Add credits or update payment method")
+            print("3. Check usage limits: https://platform.openai.com/usage")
+            print("="*60 + "\n")
+        else:
+            print(f"Error: {error_info}")
+        
+        # Forward error to frontend clients with enhanced message
         for client in frontend_clients:
-            if client.open:
+            try:
+                error_display = {
+                    "type": "error",
+                    "error": error_info,
+                    "userMessage": "⚠️ Out of OpenAI credits. Please add funds to your account." if error_code in ['insufficient_quota', 'rate_limit_exceeded', 'quota_exceeded'] else error_message
+                }
                 asyncio.run_coroutine_threadsafe(
-                    client.send(json.dumps({"type": "error", "error": event['error']})),
+                    client.send_text(json.dumps(error_display)),
                     asyncio.get_running_loop()
                 )
-            elif event_type == 'error':
-                print(f"Error: {event['error']}")
-            for client in frontend_clients:
-             if client.open:
-                asyncio.run_coroutine_threadsafe(
-                    client.send(json.dumps({"type": "error", "error": event['error']})),
-                    asyncio.get_event_loop()
-                )
+            except Exception:
+                pass
 
 def on_error(ws, error):
     print(f"WebSocket error: {error}")
@@ -274,20 +310,25 @@ async def websocket_endpoint(websocket: WebSocket):
                 data = {}
 
             if ws and getattr(ws, 'sock', None) and getattr(ws.sock, 'connected', False):
+                # Handle control messages locally without forwarding to OpenAI
                 if data.get("type") == "input_audio_buffer.append":
-                    if data.get("audio") == base64.b64encode(b"start_recording").decode('utf-8'):
+                    audio_b64 = data.get("audio", "")
+                    if audio_b64 == base64.b64encode(b"start_recording").decode('utf-8'):
                         is_recording = True
                         print("Started recording")
-                    elif data.get("audio") == base64.b64encode(b"stop_recording").decode('utf-8'):
+                        continue  # Don't forward this control message to OpenAI
+                    elif audio_b64 == base64.b64encode(b"stop_recording").decode('utf-8'):
                         is_recording = False
                         print("Stopped recording")
-                # forward raw message string to OpenAI websocket
+                        continue  # Don't forward this control message to OpenAI
+                
+                # Forward valid messages to OpenAI websocket
                 try:
                     ws.send(message)
                 except Exception as e:
                     print(f"Failed to forward message to OpenAI WS: {e}")
             else:
-                await websocket.send(json.dumps({"type": "error", "error": "OpenAI WebSocket not connected"}))
+                await websocket.send_text(json.dumps({"type": "error", "error": "OpenAI WebSocket not connected"}))
     except Exception as e:
         # Distinguish disconnects for cleaner logs
         if isinstance(e, WebSocketDisconnect):
