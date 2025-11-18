@@ -1,0 +1,12 @@
+fastapi>=0.95.0
+uvicorn[standard]>=0.21.1
+websocket-client>=1.6.3
+websockets>=11.0
+python-dotenv>=1.0.0
+numpy>=1.25.0
+openai>=1.0.0
+requests>=2.31.0
+certifi>=2024.4.0
+# Optional (may require system deps on Fly VMs):
+# pyaudio
+# amadeus (if using the amadeus SDK)
