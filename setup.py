@@ -13,8 +13,7 @@ from amadeus_api import search_hotels
 import time
 import asyncio
 import websockets
-import firebase_admin
-from firebase_admin import credentials, firestore
+# Firebase was removed (not used when deploying to Fly.io)
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
@@ -41,21 +40,10 @@ MAX_RECONNECT_ATTEMPTS = 5
 frontend_clients = []  # Track connected frontend WebSocket clients
 is_recording = False  # Track recording state
 
-# Initialize Firebase with credentials from .env
-cred = credentials.Certificate({
-    "type": os.getenv("FIREBASE_TYPE"),
-    "project_id": os.getenv("FIREBASE_PROJECT_ID"),
-    "private_key_id": os.getenv("FIREBASE_PRIVATE_KEY_ID"),
-    "private_key": os.getenv("FIREBASE_PRIVATE_KEY").replace("\\n", "\n"),
-    "client_email": os.getenv("FIREBASE_CLIENT_EMAIL"),
-    "client_id": os.getenv("FIREBASE_CLIENT_ID"),
-    "auth_uri": os.getenv("FIREBASE_AUTH_URI"),
-    "token_uri": os.getenv("FIREBASE_TOKEN_URI"),
-    "auth_provider_x509_cert_url": os.getenv("FIREBASE_AUTH_PROVIDER_X509_CERT_URL"),
-    "client_x509_cert_url": os.getenv("FIREBASE_CLIENT_X509_CERT_URL")
-})
-firebase_admin.initialize_app(cred)
-db = firestore.client()
+db = None
+
+# Simple in-memory conversation store (non-persistent) to replace Firestore usage
+conversation_store = []
 
 # Create FastAPI app
 app = FastAPI()
@@ -117,19 +105,18 @@ def on_message(ws, message):
                 pass
      
     elif event_type == 'response.text.delta':
-        print(f"Transcription delta: {event.get('delta', '')}")
-        user_id = "naveenchaitanya"
-        doc_ref = db.collection('conversations').document("naveenchaitanya").collection('messages').document()
-        doc_ref.set({
-            "sender": "assistant",
-            "message": event.get('delta', ''),
-            "timestamp": firestore.SERVER_TIMESTAMP
-        })
+        delta_text = event.get('delta', '')
+        print(f"Transcription delta: {delta_text}")
+        # Store in-memory (non-persistent)
+        try:
+            conversation_store.append({"sender": "assistant", "message": delta_text, "timestamp": time.time()})
+        except Exception:
+            pass
         # Forward to frontend clients
         for client in frontend_clients:
             try:
                 asyncio.run_coroutine_threadsafe(
-                    client.send_text(json.dumps({"type": "response.text.delta", "delta": event.get('delta', '')})),
+                    client.send_text(json.dumps({"type": "response.text.delta", "delta": delta_text})),
                     asyncio.get_running_loop()
                 )
             except Exception:

@@ -1,9 +1,7 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <!-- Firebase SDKs -->
-<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
+    <!-- Firebase removed (not used when deploying to Fly.io) -->
 
 
 
@@ -312,23 +310,7 @@
         
         document.addEventListener('DOMContentLoaded', () => {
             window.assistant = new VirtualAssistant();
-            // 🔁 Load previous conversations
-                        // load only the most recent 50 messages to avoid blocking the UI
-                        db.collection("conversations")
-                        .orderBy("timestamp", "desc")
-                        .limit(50)
-                        .get()
-                        .then((querySnapshot) => {
-                            // iterate in reverse so oldest of the batch appears first
-                            const docs = [];
-                            querySnapshot.forEach((doc) => docs.push(doc));
-                            for (let i = docs.length - 1; i >= 0; i--) {
-                                const data = docs[i].data();
-                                window.assistant.addToConversation(data.sender, data.message);
-                            }
-                     }).catch((err) => {
-                            console.error('Failed loading conversation history:', err);
-                     });
+                // No remote conversation storage configured. Conversation history is kept in-memory for this session.
           });
 
           
