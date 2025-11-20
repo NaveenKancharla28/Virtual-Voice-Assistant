@@ -189,7 +189,18 @@ Alternative: use BFG Repo-Cleaner following BFG docs. Always rotate keys first b
 
 ## License
 
-This repository does not include a license file. If you intend to publish this code, add an appropriate `LICENSE` file (for example, MIT or Apache-2.0).
+This project is now licensed under the **MIT License**.  
+A full copy of the license terms is included in the `LICENSE` file at the root of this repository.
+
+You are free to:
+
+- Use this code for personal or commercial projects  
+- Modify and distribute it  
+- Build on top of it  
+
+as long as you include the original copyright notice and license text in your distribution.
+
+The MIT License is intentionally permissive and suitable for open-source, academic, and production-grade commercial use.
 
 ---
 
