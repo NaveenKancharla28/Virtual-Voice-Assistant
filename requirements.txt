@@ -7,6 +7,5 @@ numpy>=1.25.0
 openai>=1.0.0
 requests>=2.31.0
 certifi>=2024.4.0
-# Optional (may require system deps on Fly VMs):
-# pyaudio
-# amadeus (if using the amadeus SDK)
+pyaudio>=0.2.11
+# amadeus  # only if you use the official SDK; not needed for your custom amadeus_api.py

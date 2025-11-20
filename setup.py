@@ -13,10 +13,11 @@ from amadeus_api import search_hotels
 import time
 import asyncio
 import websockets
-# Firebase was removed (not used when deploying to Fly.io)
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 
 load_dotenv()
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
@@ -48,6 +49,99 @@ conversation_store = []
 # Create FastAPI app
 app = FastAPI()
 
+
+@app.on_event("startup")
+async def startup_event():
+    """Start OpenAI realtime WS + mic streaming when the app boots (Fly + local)."""
+    global output_stream
+
+    try:
+        print("Starting OpenAI realtime websocket background thread...")
+        start_websocket()                  # connect to OpenAI
+        threading.Thread(target=stream_mic_audio, daemon=True).start()
+    except Exception as e:
+        print(f"Failed to start websocket / mic thread: {e}")
+
+    # optional: server-side speaker for local dev only
+    try:
+        output_stream = p.open(format=FORMAT, channels=CHANNELS, rate=SAMPLE_RATE, output=True)
+        print("Output audio stream initialized.")
+    except OSError as e:
+        print(f"Failed to open output stream: {e}")
+        output_stream = None
+
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    global ws, input_stream, output_stream
+
+    try:
+        if ws:
+            ws.close()
+    except Exception:
+        pass
+
+    for stream in (input_stream, output_stream):
+        if stream:
+            try:
+                stream.stop_stream()
+                stream.close()
+            except Exception:
+                pass
+
+    p.terminate()
+    print("Shutdown complete.")
+
+@app.on_event("startup")
+async def startup_event():
+    """Runs when FastAPI app starts (works in Fly with uvicorn setup:app)."""
+    global output_stream
+
+    # Start OpenAI realtime WebSocket in background
+    try:
+        start_websocket()
+        print("Started OpenAI realtime websocket background thread.")
+    except Exception as e:
+        print(f"Failed to start websocket on startup: {e}")
+
+    # Try to create audio output stream (for local dev). On Fly this may fail; that's OK.
+    try:
+        output_stream = p.open(format=FORMAT, channels=CHANNELS, rate=SAMPLE_RATE, output=True)
+        print("Output audio stream initialized.")
+    except OSError as e:
+        print(f"Failed to open output stream (probably no audio device): {e}")
+        output_stream = None
+
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    """Cleanup when server stops."""
+    global ws, input_stream, output_stream
+
+    try:
+        if ws:
+            ws.close()
+    except Exception:
+        pass
+
+    if input_stream:
+        try:
+            input_stream.stop_stream()
+            input_stream.close()
+        except Exception:
+            pass
+
+    if output_stream:
+        try:
+            output_stream.stop_stream()
+            output_stream.close()
+        except Exception:
+            pass
+
+    p.terminate()
+    print("Shutdown complete.")
+
+
 # Serve static files (including index.html)
 app.mount("/static", StaticFiles(directory="."), name="static")
 
@@ -56,14 +150,26 @@ app.mount("/static", StaticFiles(directory="."), name="static")
 async def get_index():
     return FileResponse("index.html")
 
+
+@app.get("/health")
+async def health_check():
+    return {"status": "ok"}
+
 def on_message(ws, message):
     event = json.loads(message)
     event_type = event.get('type')
     
     if event_type == 'response.audio.delta':
         audio_delta = np.frombuffer(base64.b64decode(event['delta']), dtype=np.int16)
-        output_stream.write(audio_delta.tobytes())
-        print("Playing Virtual Assistant delta on server...")
+
+        # Play on server only if we actually have an output device (locally)
+        if output_stream is not None:
+            try:
+                output_stream.write(audio_delta.tobytes())
+            except Exception as e:
+                print(f"Output stream error: {e}")
+
+        print("Forwarding Virtual Assistant delta to frontend...")
         # Forward audio to frontend with metadata
         for client in frontend_clients:
             try:
@@ -75,10 +181,11 @@ def on_message(ws, message):
                         "channels": CHANNELS,
                         "format": "pcm16"
                     })),
-                    asyncio.get_running_loop()
+                    asyncio.get_event_loop()
                 )
-            except Exception:
-                pass
+            except Exception as e:
+                print(f"Failed to forward audio to frontend: {e}")
+
     
     elif event_type == 'response.audio.done':
         print("Virtual Assistant response complete.")
@@ -286,6 +393,7 @@ def stream_mic_audio():
 async def websocket_endpoint(websocket: WebSocket):
     await websocket.accept()
     frontend_clients.append(websocket)
+    global is_recording
     try:
         while True:
             # FastAPI's WebSocket doesn't support async iteration; use receive_text/receive_json
@@ -315,7 +423,13 @@ async def websocket_endpoint(websocket: WebSocket):
                 except Exception as e:
                     print(f"Failed to forward message to OpenAI WS: {e}")
             else:
-                await websocket.send_text(json.dumps({"type": "error", "error": "OpenAI WebSocket not connected"}))
+                # OpenAI WS not connected — echo back the received message for testing/deployment
+                try:
+                    echo_payload = {"type": "echo", "received": data if data else {"raw": message}}
+                    await websocket.send_text(json.dumps(echo_payload))
+                except Exception:
+                    # Fallback simple echo
+                    await websocket.send_text(message)
     except Exception as e:
         # Distinguish disconnects for cleaner logs
         if isinstance(e, WebSocketDisconnect):
@@ -333,49 +447,10 @@ async def websocket_endpoint(websocket: WebSocket):
 async def start_frontend_ws():
     try:
         import uvicorn
-        config = uvicorn.Config(app, host="localhost", port=8080, log_level="info")
+        port = int(os.getenv("PORT", "8080"))
+        config = uvicorn.Config(app, host="0.0.0.0", port=port, log_level="info")
         server = uvicorn.Server(config)
         await server.serve()
     except Exception as e:
         print(f"Failed to start frontend WebSocket server: {e}")
 
-# Main entrypoint - start background tasks and run FastAPI/uvicorn in foreground
-if __name__ == "__main__":
-    try:
-        # Start OpenAI realtime WebSocket in background
-        start_websocket()
-
-        # Setup output stream (optional)
-        try:
-            output_stream = p.open(format=FORMAT, channels=CHANNELS, rate=SAMPLE_RATE, output=True)
-        except OSError as e:
-            print(f"Failed to open output stream: {e}. Check audio output device availability.")
-            output_stream = None
-
-        # Run FastAPI / Uvicorn (this call blocks until server stops)
-        import uvicorn
-        uvicorn.run(app, host="localhost", port=8080)
-
-    except KeyboardInterrupt:
-        print("Interrupted by user, shutting down...")
-    finally:
-        # cleanup
-        try:
-            if ws:
-                ws.close()
-        except Exception:
-            pass
-        if input_stream:
-            try:
-                input_stream.stop_stream()
-                input_stream.close()
-            except Exception:
-                pass
-        if output_stream:
-            try:
-                output_stream.stop_stream()
-                output_stream.close()
-            except Exception:
-                pass
-        p.terminate()
-        print("Exited.")

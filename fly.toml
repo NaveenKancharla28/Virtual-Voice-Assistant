@@ -1,0 +1,25 @@
+app = "virtual-voice-assistant"
+primary_region = "iad"
+
+
+
+[[services]]
+  internal_port = 8080
+  protocol = "tcp"
+
+  [services.concurrency]
+    type = "requests"
+    hard_limit = 25
+    soft_limit = 20
+
+  [[services.ports]]
+    port = 80
+    handlers = ["http"]
+
+  [[services.ports]]
+    port = 443
+    handlers = ["tls", "http"]
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "256mb"

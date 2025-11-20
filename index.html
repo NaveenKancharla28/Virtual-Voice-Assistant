@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <!-- Firebase removed (not used when deploying to Fly.io) -->
+    
 
 
 
@@ -131,7 +131,9 @@
             }
             
             initializeWebSocket() {
-                this.ws = new WebSocket('ws://localhost:8080/ws');
+                const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+                const wsHost = window.location.host; // e.g. 
+                this.ws = new WebSocket(`${wsProtocol}//${wsHost}/ws`);
                 
                 this.ws.onopen = () => {
                     console.log('WebSocket connected');
@@ -188,7 +190,12 @@
             
             startListening() {
                 if (this.isListening || !this.ws || this.ws.readyState !== WebSocket.OPEN) return;
-                
+
+                // Make sure audio is allowed to play (Chrome autoplay policy)
+                if (this.audioContext && this.audioContext.state === 'suspended') {
+                    try { this.audioContext.resume(); } catch (e) { console.warn('AudioContext resume failed', e); }
+                }
+
                 this.isListening = true;
                 this.voiceVisualizer.classList.add('listening');
                 this.voiceVisualizer.querySelector('.voice-icon').textContent = '🎙️';
@@ -196,7 +203,7 @@
                 this.startBtn.textContent = 'Listening...';
                 this.startBtn.disabled = true;
                 this.stopBtn.disabled = false;
-                
+
                 const audioEvent = {
                     type: 'input_audio_buffer.append',
                     audio: btoa('start_recording')
@@ -206,7 +213,12 @@
             
             stopListening() {
                 if (!this.isListening || !this.ws || this.ws.readyState !== WebSocket.OPEN) return;
-                
+
+                // wake AudioContext on user action if needed
+                if (this.audioContext && this.audioContext.state === 'suspended') {
+                 this.audioContext.resume();
+             }
+
                 this.isListening = false;
                 this.voiceVisualizer.classList.remove('listening');
                 this.voiceVisualizer.querySelector('.voice-icon').textContent = '🎤';
@@ -214,43 +226,64 @@
                 this.startBtn.textContent = 'Start Listening';
                 this.startBtn.disabled = false;
                 this.stopBtn.disabled = true;
-                
-                const audioEvent = {
-                    type: 'input_audio_buffer.append',
-                    audio: btoa('stop_recording')
-                };
+
+            const audioEvent = {
+             type: 'input_audio_buffer.append',
+            audio: btoa('stop_recording')
+            };
                 this.ws.send(JSON.stringify(audioEvent));
-            }
+}
+
             
-            toggleListening() {
-                if (this.isListening) {
-                    this.stopListening();
-                } else {
-                    this.startListening();
-                }
-            }
-            
-            playAudioDelta(base64Delta, sampleRate, channels, format) {
+            playAudioDelta(base64Delta, sampleRate = 24000, channels = 1, format = "pcm16") {
                 if (!this.audioContext) {
                     this.audioContext = new (window.AudioContext || window.webkitAudioContext)();
                 }
-                const audioData = atob(base64Delta);
-                const audioArray = new Uint8Array(audioData.length);
-                for (let i = 0; i < audioData.length; i++) {
-                    audioArray[i] = audioData.charCodeAt(i);
+
+                // Decode base64 -> Int16 -> Float32
+                const binary = atob(base64Delta);
+                const len = binary.length;
+                // Expect PCM16: 2 bytes per sample
+                const bytes = new Int16Array(len / 2);
+
+                for (let i = 0; i < len; i += 2) {
+                    // Little-endian: low byte first
+                    bytes[i / 2] = (binary.charCodeAt(i + 1) << 8) | (binary.charCodeAt(i) & 0xff);
                 }
-                this.audioContext.decodeAudioData(audioArray.buffer.slice(0), (buffer) => {
-                    if (this.audioSource) this.audioSource.stop();
-                    this.audioSource = this.audioContext.createBufferSource();
-                    this.audioSource.buffer = buffer;
-                    this.audioSource.connect(this.audioContext.destination);
-                    this.audioSource.start(0);
-                    this.isSpeaking = true;
-                    this.voiceVisualizer.classList.add('speaking');
-                    this.voiceVisualizer.querySelector('.voice-icon').textContent = '🗣️';
-                }, (error) => {
-                    console.error('Audio decode error:', error);
-                });
+
+                const float32 = new Float32Array(bytes.length);
+                for (let i = 0; i < bytes.length; i++) {
+                    float32[i] = bytes[i] / 32768; // normalize PCM16 to [-1,1]
+                }
+
+                const buffer = this.audioContext.createBuffer(
+                    channels,
+                    float32.length / Math.max(1, channels),
+                    sampleRate
+                );
+
+                // If mono, set channel 0. If multiple channels, interleave as available.
+                if (channels === 1) {
+                    buffer.getChannelData(0).set(float32);
+                } else {
+                    // deinterleave into channels
+                    for (let ch = 0; ch < channels; ch++) {
+                        const channelData = buffer.getChannelData(ch);
+                        for (let i = 0, j = ch; i < channelData.length; i++, j += channels) {
+                            channelData[i] = float32[j] || 0;
+                        }
+                    }
+                }
+
+                if (this.audioSource) try { this.audioSource.stop(); } catch (e) {}
+                this.audioSource = this.audioContext.createBufferSource();
+                this.audioSource.buffer = buffer;
+                this.audioSource.connect(this.audioContext.destination);
+                this.audioSource.start(0);
+
+                this.isSpeaking = true;
+                this.voiceVisualizer.classList.add('speaking');
+                this.voiceVisualizer.querySelector('.voice-icon').textContent = '🗣️';
             }
             
             stopSpeaking() {
@@ -262,31 +295,22 @@
                 }
             }
             
-            addToConversation(sender, message) {
-                const conversationItem = document.createElement('div');
-                conversationItem.className = `conversation-item ${sender}`;
-                
-                conversationItem.innerHTML = `
-                    <div class="conversation-label">${sender === 'user' ? 'You' : 'VC'}</div>
-                    <div class="conversation-text">${message}</div>
-                `;
-                
-                this.conversationList.appendChild(conversationItem);
-                this.conversationHistory.push({ sender, message, timestamp: new Date() });
-                 // 🔥 Store message in Firestore
-               db.collection("conversations").add({
-                 sender: sender,
-                  message: message,
-                 timestamp: new Date()
-                }).then(() => {
-                console.log("✅ Message saved to Firestore");
-                }).catch((err) => {
-                console.error("❌ Failed to save message:", err);
-            });
+addToConversation(sender, message) {
+    const conversationItem = document.createElement('div');
+    conversationItem.className = `conversation-item ${sender}`;
+    
+    conversationItem.innerHTML = `
+        <div class="conversation-label">${sender === 'user' ? 'You' : 'VC'}</div>
+        <div class="conversation-text">${message}</div>
+    `;
+    
+    this.conversationList.appendChild(conversationItem);
+    this.conversationHistory.push({ sender, message, timestamp: new Date() });
 
-                
-                conversationItem.scrollIntoView({ behavior: 'smooth' });
-            }
+    
+
+    conversationItem.scrollIntoView({ behavior: 'smooth' });
+}
             
             clearHistory() {
                 this.conversationHistory = [];
